@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Text2Video — 10 Second Generator</title>
+<style>
+  :root{--bg:#0b0e1a;--panel:#141a2e;--line:#2a3355;--acc:#7c5cff;--acc2:#4de1ff;--text:#eef1ff;--muted:#8b93b8}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(1000px 500px at 50% -10%,#1b2342 0%,var(--bg) 60%),var(--bg);color:var(--text);min-height:100vh}
+  main{max-width:980px;margin:0 auto;padding:32px 20px}
+  h1{margin:0 0 4px;font-size:26px}
+  p.sub{margin:0 0 22px;color:var(--muted)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:14px}
+  textarea{width:100%;min-height:80px;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0d1224;color:var(--text);font-size:15px;resize:vertical}
+  textarea:focus{outline:none;border-color:var(--acc)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{padding:12px 20px;border-radius:12px;border:none;cursor:pointer;font-weight:700;font-size:14px;background:linear-gradient(90deg,var(--acc),#5a3ee0);color:#fff}
+  button:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  select,input[type=number]{padding:10px;border-radius:10px;border:1px solid var(--line);background:#0d1224;color:var(--text)}
+  #preview{width:100%;border-radius:12px;border:1px solid var(--line);display:block;background:#000}
+  #status{color:var(--muted);font-size:13px;min-height:18px}
+  progress{width:100%;accent-color:var(--acc)}
+  .hint{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Text2Video</h1>
+  <p class="sub">Type a prompt — get a 10 second video. Everything runs locally in your browser: no upload, no server.</p>
+  <div class="panel">
+    <textarea id="prompt" placeholder="e.g. a calm underwater city at sunset with drifting bubbles and bioluminescent lights"></textarea>
+    <div class="row">
+      <label>Style
+        <select id="style">
+          <option value="dreamy">Dreamy</option>
+          <option value="cyberpunk">Cyberpunk</option>
+          <option value="nature">Nature</option>
+          <option value="space">Space</option>
+          <option value="ocean">Ocean</option>
+          <option value="sunset">Sunset</option>
+        </select>
+      </label>
+      <label>Duration (s)
+        <input id="duration" type="number" value="10" min="2" max="30" />
+      </label>
+      <button id="generate">Generate Video</button>
+      <a id="download" style="display:none"><button class="ghost" type="button">Download</button></a>
+    </div>
+    <canvas id="preview" width="960" height="540"></canvas>
+    <progress id="progress" value="0" max="100" style="display:none"></progress>
+    <div id="status"></div>
+    <div class="hint">Uses your GPU/CPU via Canvas 2D + MediaRecorder. Output: WebM video. For cinematic AI models, set up a local diffusers GPU server — out of scope here.</div>
+  </div>
+</main>
+<script>
+const canvas = document.getElementById('preview');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const statusEl = document.getElementById('status');
+const progress = document.getElementById('progress');
+let rafId = null;
+
+const PALETTES = {
+  dreamy:   [['#2b1055','#7597de'],['#a8c0ff','#3f2b96'],['#fbc2eb','#a6c1ee'],['#e0c3fc','#8ec5fc']],
+  cyberpunk:[['#0f0c29','#302b63'],['#ff00cc','#333399'],['#00f0ff','#1a0533'],['#fb36f4','#000428']],
+  nature:   [['#134e5e','#71b280'],['#3a7d44','#2bc0e4'],['#56ab2f','#a8e063'],['#0f2027','#2c5364']],
+  space:    [['#000428','#004e92'],['#200122','#6f0000'],['#0f0c29','#6a3093'],['#232526','#414345']],
+  ocean:    [['#000046','#1cb5e0'],['#00416a','#e4e5e6'],['#2c3e50','#4ca1af'],['#136a8a','#267871']],
+  sunset:   [['#ff512f','#dd2476'],['#f83600','#f9d423'],['#cb2d3e','#ef473a'],['#721c24','#b21f1f']],
+};
+
+function hash(s){let h=2166136261;for(const c of s){h^=c.charCodeAt(0);h=Math.imul(h,16777619)}return h>>>0}
+function mulberry(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+function makeScene(prompt, style){
+  const rng = mulberry(hash(prompt + style));
+  const pal = PALETTES[style] || PALETTES.dreamy;
+  const stops = pal[Math.floor(rng()*pal.length)];
+  const blobs = Array.from({length: 14}, () => ({
+    x: rng()*W, y: rng()*H, r: 40 + rng()*140,
+    hue: rng()*360, speed: 0.2 + rng()*0.8,
+    phase: rng()*Math.PI*2, hueShift: rng()*160 - 80,
+  }));
+  const stars = Array.from({length: 90}, () => ({x:rng()*W,y:rng()*H,r:rng()*1.8+0.3,tw:rng()*Math.PI*2}));
+  const words = prompt.split(/\s+/).filter(w=>w.length>2).slice(0,8);
+  return {stops, blobs, stars, words, rng};
+}
+
+function drawFrame(scene, prompt, t, duration){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, scene.stops[0]); g.addColorStop(1, scene.stops[1]);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  for(const s of scene.stars){
+    const a = 0.4 + 0.6*Math.abs(Math.sin(t*1.5 + s.tw));
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+  for(const b of scene.blobs){
+    const x = (b.x + Math.sin(t*b.speed + b.phase)*80 + W) % W;
+    const y = (b.y + Math.cos(t*b.speed*0.7 + b.phase)*60 + H) % H;
+    const h = (b.hue + t*12 + b.hueShift + 360) % 360;
+    const rg = ctx.createRadialGradient(x,y,0,x,y,b.r);
+    rg.addColorStop(0, `hsla(${h},80%,60%,0.35)`);
+    rg.addColorStop(1, `hsla(${h},80%,60%,0)`);
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(x,y,b.r,0,7); ctx.fill();
+  }
+
+  // kinetic prompt words
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 64px system-ui, sans-serif';
+  const wob = Math.sin(t*2)*8;
+  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 18;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(prompt.slice(0, 42), W/2, H/2 - 40 + wob);
+  ctx.font = '600 26px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.fillText(scene.words.join(' · ').slice(0, 60), W/2, H/2 + 30);
+  ctx.shadowBlur = 0;
+
+  // title card fade in/out
+  const fade = Math.min(1, t*2, Math.max(0,(duration-t)*2));
+  ctx.fillStyle = `rgba(0,0,0,${0.25*(1-fade)})`;
+  ctx.fillRect(0,0,W,H);
+  ctx.font = '700 18px monospace';
+  ctx.fillStyle = 'rgba(255,255,255,.7)';
+  ctx.textAlign = 'left';
+  ctx.fillText(`t = ${t.toFixed(1)}s`, 20, H - 24);
+}
+
+async function generate(){
+  const prompt = document.getElementById('prompt').value.trim() || 'untitled dream';
+  const style = document.getElementById('style').value;
+  const duration = Math.min(30, Math.max(2, +document.getElementById('duration').value || 10));
+  const btn = document.getElementById('generate');
+  btn.disabled = true; progress.style.display='block'; progress.value = 0;
+  statusEl.textContent = 'Rendering frames...';
+  document.getElementById('download').style.display = 'none';
+  if (rafId) cancelAnimationFrame(rafId);
+
+  const scene = makeScene(prompt, style);
+  const stream = canvas.captureStream(30);
+  const rec = new MediaRecorder(stream, {mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' : 'video/webm'});
+  const chunks = [];
+  rec.ondataavailable = e => chunks.push(e.data);
+  const done = new Promise(r => rec.onstop = r);
+  rec.start();
+
+  const start = performance.now();
+  await new Promise(resolve => {
+    function loop(now){
+      const t = (now - start)/1000;
+      if (t >= duration){ resolve(); return; }
+      drawFrame(scene, prompt, t, duration);
+      progress.value = (t/duration)*100;
+      statusEl.textContent = `Rendering... ${t.toFixed(1)}s / ${duration}s`;
+      rafId = requestAnimationFrame(loop);
+    }
+    rafId = requestAnimationFrame(loop);
+  });
+  rec.stop(); await done;
+  progress.value = 100;
+  const blob = new Blob(chunks, {type:'video/webm'});
+  const url = URL.createObjectURL(blob);
+  const a = document.getElementById('download');
+  a.href = url; a.download = `text2video-${Date.now()}.webm`; a.style.display='inline-block';
+  statusEl.textContent = `Done — ${(blob.size/1024/1024).toFixed(1)} MB. Click Download.`;
+  btn.disabled = false;
+  // playback loop
+  const t0 = performance.now();
+  (function loop(now){
+    const t = ((now - t0)/1000) % duration;
+    drawFrame(scene, prompt, t, duration);
+    rafId = requestAnimationFrame(loop);
+  })(t0);
+}
+document.getElementById('generate').addEventListener('click', generate);
+</script>
+</body>
+</html>

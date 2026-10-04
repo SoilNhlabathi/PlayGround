@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Muse Spark's Beer Can Mugg — Personalized Can Holder</title>
+<style>
+  :root{
+    --bg:#120b06; --panel:#1e140c; --panel2:#261a10;
+    --amber:#f5a623; --amber2:#ffcf6b; --foam:#fff8e9;
+    --text:#f5ead6; --muted:#c9b18c; --line:#3a2a18;
+    --accent:#ffb02e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(1200px 600px at 50% -10%, #35200f 0%, var(--bg) 55%) , var(--bg);color:var(--text);min-height:100vh}
+  header{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;max-width:1200px;margin:0 auto}
+  .brand{display:flex;gap:14px;align-items:center}
+  .logo{width:48px;height:48px;border-radius:14px;background:linear-gradient(145deg,var(--amber),#b86a00);display:grid;place-items:center;font-size:28px;box-shadow:0 6px 24px rgba(245,166,35,.35)}
+  .brand h1{font-size:20px;margin:0;letter-spacing:.2px}
+  .brand p{margin:2px 0 0;color:var(--muted);font-size:13px}
+  .badge{font-size:12px;border:1px solid var(--line);padding:8px 12px;border-radius:999px;background:#1a120a;color:var(--amber2)}
+  main{max-width:1200px;margin:0 auto;padding:0 24px 24px;display:grid;grid-template-columns:1.55fr .95fr;gap:18px}
+  @media(max-width:900px){main{grid-template-columns:1fr} header{flex-direction:column;align-items:flex-start;gap:10px}}
+  .viewer{position:relative;background:linear-gradient(180deg,#21150b,#140d07);border:1px solid var(--line);border-radius:20px;overflow:hidden;min-height:560px}
+  #scene{width:100%;height:560px;display:block}
+  .viewer-overlay{position:absolute;left:16px;right:16px;top:14px;display:flex;justify-content:space-between;pointer-events:none}
+  .pill{pointer-events:auto;background:rgba(0,0,0,.55);backdrop-filter:blur(8px);border:1px solid #4a341c;color:var(--foam);padding:8px 12px;border-radius:999px;font-size:13px}
+  .viewer-footer{position:absolute;left:16px;right:16px;bottom:14px;display:flex;gap:10px;flex-wrap:wrap}
+  .viewer-footer button{flex:1;min-width:140px}
+  .panel{background:linear-gradient(180deg,var(--panel),#150e07);border:1px solid var(--line);border-radius:20px;padding:20px;display:flex;flex-direction:column;gap:16px}
+  .panel h2{margin:0;font-size:16px;letter-spacing:.4px;text-transform:uppercase;color:var(--amber2)}
+  label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+  input[type=text],select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#0f0a06;color:var(--text);font-size:16px;outline:none}
+  input[type=text]:focus,select:focus{border-color:var(--amber)}
+  .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+  .sw{height:38px;border-radius:10px;border:2px solid transparent;cursor:pointer}
+  .sw.active{border-color:#fff;box-shadow:0 0 0 2px var(--amber)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .range{display:flex;align-items:center;gap:10px}
+  input[type=range]{flex:1;accent-color:var(--amber)}
+  .btn{border:1px solid var(--line);background:#0f0a06;color:var(--text);padding:11px 14px;border-radius:12px;cursor:pointer;font-weight:600;font-size:14px;transition:.15s}
+  .btn:hover{transform:translateY(-1px);border-color:var(--amber)}
+  .btn.primary{background:linear-gradient(180deg,var(--amber2),var(--amber));color:#231303;border:none;box-shadow:0 8px 24px rgba(245,166,35,.35)}
+  .btn.ghost{background:transparent}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .stat{background:#0f0a06;border:1px solid var(--line);border-radius:14px;padding:10px;text-align:center}
+  .stat b{display:block;font-size:18px}
+  .stat span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  .cards{max-width:1200px;margin:0 auto;padding:0 24px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:900px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+  .card h3{margin:0 0 8px;font-size:15px}
+  .card p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+  .name-preview{font-size:28px;font-weight:900;letter-spacing:1px;text-align:center;padding:12px;border-radius:12px;background:#0d0805;border:1px dashed #5a4022;color:var(--amber2);text-transform:uppercase;word-break:break-word}
+  .hint{font-size:12px;color:var(--muted)}
+  canvas{display:block}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">🍺</div>
+    <div>
+      <h1>Muse Spark's Beer Can Mugg</h1>
+      <p>A mug-shaped holder that hugs your beer can — with my name on it. Personalize it with yours.</p>
+    </div>
+  </div>
+  <div class="badge">🍻 App • 3D preview • 3D-print ready • fits 330ml / 12oz cans</div>
+</header>
+
+<main>
+  <div class="viewer">
+    <canvas id="scene"></canvas>
+    <div class="viewer-overlay">
+      <div class="pill" id="beerPill">🍺 Lager • 5.0% • ❄️ frosty</div>
+      <div class="pill">drag to orbit • scroll to zoom</div>
+    </div>
+    <div class="viewer-footer">
+      <button class="btn primary" id="cheersBtn">🍻 Cheers! (foam burst)</button>
+      <button class="btn" id="liftBtn">⬆️ Lift the can</button>
+      <button class="btn" id="shotBtn">📸 Snapshot PNG</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div>
+      <h2>1 • Put your name on it</h2>
+      <p class="hint">This demo came with <b style="color:var(--amber2)">my</b> name on it: <b style="color:#fff">MUSE SPARK</b>. Type yours to make it yours.</p>
+      <label for="nameInput">Engraved name on the mugg</label>
+      <input id="nameInput" type="text" value="MUSE SPARK" maxlength="18" />
+      <div class="name-preview" id="namePreview">MUSE SPARK</div>
+    </div>
+
+    <div>
+      <h2>2 • Mugg color</h2>
+      <label>Pick a glaze</label>
+      <div class="swatches" id="swatches"></div>
+    </div>
+
+    <div class="row2">
+      <div>
+        <label for="beerSelect">Beer style (changes can)</label>
+        <select id="beerSelect">
+          <option value="lager" selected>Lager — golden</option>
+          <option value="ipa">IPA — hoppy amber</option>
+          <option value="stout">Stout — dark</option>
+          <option value="pilsner">Pilsner — pale straw</option>
+        </select>
+      </div>
+      <div>
+        <label for="sizeSelect">Can size</label>
+        <select id="sizeSelect">
+          <option value="330" selected>330 ml slim (Ø 66mm)</option>
+          <option value="355">12 oz US (355 ml)</option>
+          <option value="500">500 ml tall</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label>❄️ Chill / condensation: <span id="chillVal">70%</span></label>
+      <div class="range"><span>dry</span><input id="chill" type="range" min="0" max="100" value="70"/><span>frosty</span></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn" id="spinBtn">⏸️ Pause spin</button>
+        <a class="btn primary" style="text-decoration:none;text-align:center" href="muse-spark-beer-mugg-holder.stl" download>⬇️ Download holder STL (3D print)</a>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b id="s1">66 mm</b><span>can Ø</span></div>
+      <div class="stat"><b id="s2">115 mm</b><span>can height</span></div>
+      <div class="stat"><b id="s3">82 mm</b><span>mugg Ø × 124mm</span></div>
+    </div>
+    <p class="hint">Holder is modeled with 3mm walls + 6mm base, 8mm clearance for coaster fit. STL exports the holder only (no can) so you can slice it in Cura / Bambu / Prusa.</p>
+  </div>
+</main>
+
+<div class="cards">
+  <div class="card"><h3>🍺 What is a “beer mugg”?</h3><p>A mug with a deep pocket: you drop a cold can inside. It insulates like a koozie, but drinks like a stein — with a proper handle and your name in big letters. No more mystery cans at the braai / BBQ.</p></div>
+  <div class="card"><h3>🖨️ Print it — real STL included</h3><p><a style="color:var(--amber2)" href="muse-spark-beer-mugg-holder.stl" download><b>muse-spark-beer-mugg-holder.stl</b></a> (4.9 MB, 98k tris) is in this repo: Ø78 × 105 mm mug, Ø68 mm pocket for 66 mm cans, 5 mm walls, 6 mm floor, embossed <b>MUSE SPARK / BEER MUGG</b> 2 mm relief. Slice at 0.2 mm, 3 walls, 15% gyroid, PETG. Use supports for the handle. Fits Ender-3 bed.</p></div>
+  <div class="card"><h3>✨ Why “Muse Spark”?</h3><p>Because you asked for <i>my</i> name on it. This copy ships engraved <b>MUSE SPARK</b> by default. Change the field above to add your own — the 3D texture updates live.</p></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const canvas = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, preserveDrawingBuffer:true, alpha:true});
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = null;
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+camera.position.set(3.2, 2.4, 4.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.1, 0);
+controls.enableDamping = true;
+controls.minDistance = 2.2; controls.maxDistance = 10;
+controls.maxPolarAngle = Math.PI*0.495;
+
+scene.add(new THREE.HemisphereLight(0xfff2d9, 0x2a1a0e, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(3,5,2); key.castShadow = true; key.shadow.mapSize.set(2048,2048);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0xffb45e, 1.1); rim.position.set(-4,3,-3); scene.add(rim);
+const fill = new THREE.PointLight(0x5ec8ff, 4, 10); fill.position.set(-1.5,2,2.5); scene.add(fill);
+
+// ground
+const ground = new THREE.Mesh(new THREE.CircleGeometry(3.2,64), new THREE.MeshStandardMaterial({color:0x1d130b, roughness:.9}));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+const coaster = new THREE.Mesh(new THREE.CylinderGeometry(0.95,0.95,0.06,64), new THREE.MeshStandardMaterial({color:0x2e1f12, roughness:.8}));
+coaster.position.y = 0.03; coaster.receiveShadow = true; coaster.castShadow=true; scene.add(coaster);
+
+// --- textures via canvas ---
+function makeHolderTexture(name, base){
+  const c = document.createElement('canvas'); c.width=1024; c.height=512;
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0,0,1024,512);
+  // subtle vertical shading
+  const grad = g.createLinearGradient(0,0,0,512); grad.addColorStop(0,'rgba(255,255,255,.18)'); grad.addColorStop(.25,'rgba(0,0,0,0)'); grad.addColorStop(1,'rgba(0,0,0,.28)');
+  g.fillStyle = grad; g.fillRect(0,0,1024,512);
+  // top + bottom bands
+  g.fillStyle='rgba(0,0,0,.35)'; g.fillRect(0,0,1024,26); g.fillRect(0,486,1024,26);
+  g.strokeStyle='rgba(255,255,255,.55)'; g.lineWidth=3; g.beginPath(); g.moveTo(0,32); g.lineTo(1024,32); g.moveTo(0,480); g.lineTo(1024,480); g.stroke();
+  // name
+  g.textAlign='center'; g.textBaseline='middle';
+  g.fillStyle='rgba(0,0,0,.45)';
+  g.font='900 132px Impact, Anton, sans-serif';
+  g.fillText(name||'MUSE SPARK', 512+4, 228+5);
+  g.fillStyle='#fff8e9';
+  g.fillText(name||'MUSE SPARK', 512, 228);
+  g.font='700 44px system-ui, sans-serif';
+  g.fillStyle='#ffe1a1';
+  g.fillText('★ BEER MUGG ★', 512, 350);
+  g.font='600 30px system-ui, sans-serif'; g.fillStyle='rgba(255,248,233,.85)';
+  g.fillText('HOLDS 330ml / 12oz CANS • EST. 2026', 512, 402);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy=8;
+  return t;
+}
+function makeCanTexture(style){
+  const pal = {lager:['#f7c948','#c98a00','LAGER'], ipa:['#e07b2a','#7a2e00','IPA'], stout:['#2b1d12','#000000','STOUT'], pilsner:['#f4e27a','#9a8a1a','PILSNER']}[style]||['#f7c948','#c98a00','LAGER'];
+  const c=document.createElement('canvas'); c.width=512; c.height=512; const g=c.getContext('2d');
+  const lg=g.createLinearGradient(0,0,512,0); lg.addColorStop(0,pal[1]); lg.addColorStop(.2,pal[0]); lg.addColorStop(.5,'#ffffff'); lg.addColorStop(.8,pal[0]); lg.addColorStop(1,pal[1]);
+  g.fillStyle=lg; g.fillRect(0,0,512,512);
+  g.fillStyle='rgba(0,0,0,.75)'; g.fillRect(0,70,512,150);
+  g.textAlign='center'; g.fillStyle='#fff'; g.font='900 84px Impact,sans-serif'; g.fillText(pal[2],256,170);
+  g.font='700 30px system-ui'; g.fillStyle='#ffe8a3'; g.fillText('MUSE SPARK BREWING',256,105);
+  g.font='600 26px system-ui'; g.fillStyle='#111'; g.fillRect(0,360,512,60); g.fillStyle='#fff'; g.fillText('ICE COLD • 5.0%',256,398);
+  // wave
+  g.fillStyle='rgba(255,255,255,.35)'; for(let i=0;i<512;i+=32){g.beginPath();g.arc(i,300,14,0,7);g.fill();}
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+
+// --- holder group ---
+const holder = new THREE.Group(); scene.add(holder);
+let holderColor = '#b5341f';
+let holderMat = new THREE.MeshStandardMaterial({map:makeHolderTexture('MUSE SPARK', holderColor), roughness:.45, metalness:.05});
+const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.82,0.78,1.24,64,1,true), holderMat);
+outer.position.y = 0.68; outer.castShadow=true; outer.receiveShadow=true; holder.add(outer);
+const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.78,0.78,0.08,64), new THREE.MeshStandardMaterial({color:new THREE.Color(holderColor).multiplyScalar(.8), roughness:.6}));
+bottom.position.y=0.10; bottom.castShadow=true; holder.add(bottom);
+const innerWall = new THREE.Mesh(new THREE.CylinderGeometry(0.68,0.68,1.18,64,1,true), new THREE.MeshStandardMaterial({color:0x140d07, roughness:.9, side:THREE.BackSide}));
+innerWall.position.y=0.70; holder.add(innerWall);
+const rimT = new THREE.Mesh(new THREE.TorusGeometry(0.82,0.035,16,80), new THREE.MeshStandardMaterial({color:0x2b1c0e, roughness:.4, metalness:.3}));
+rimT.rotation.x=Math.PI/2; rimT.position.y=1.30; rimT.castShadow=true; holder.add(rimT);
+// handle
+const handle = new THREE.Mesh(new THREE.TorusGeometry(0.38,0.075,20,48,Math.PI), new THREE.MeshStandardMaterial({color:new THREE.Color(holderColor).multiplyScalar(.9), roughness:.4}));
+handle.position.set(0.84,0.68,0); handle.rotation.z=-Math.PI/2; handle.castShadow=true; holder.add(handle);
+const handleMat = handle.material;
+
+// --- beer can ---
+const canGroup = new THREE.Group(); scene.add(canGroup);
+let beerStyle='lager';
+let canMat = new THREE.MeshStandardMaterial({map:makeCanTexture(beerStyle), metalness:.75, roughness:.25});
+const canBody = new THREE.Mesh(new THREE.CylinderGeometry(0.62,0.62,1.10,64), canMat);
+canBody.position.y=1.18; canBody.castShadow=true; canGroup.add(canBody);
+const canTopMat = new THREE.MeshStandardMaterial({color:0xd7dde3, metalness:.95, roughness:.2});
+const canTop = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.62,0.10,64), canTopMat);
+canTop.position.y=1.78; canGroup.add(canTop);
+const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.015,64), canTopMat); lid.position.y=1.835; canGroup.add(lid);
+const tabBase = new THREE.Mesh(new THREE.TorusGeometry(0.09,0.018,12,32), canTopMat); tabBase.rotation.x=Math.PI/2; tabBase.position.y=1.845; canGroup.add(tabBase);
+const tab = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.012,0.18), canTopMat); tab.position.y=1.845; canGroup.add(tab);
+
+// condensation
+let drops = new THREE.Group(); scene.add(drops);
+const dropGeo = new THREE.SphereGeometry(0.018,10,10);
+const dropMat = new THREE.MeshPhysicalMaterial({color:0xcfe9ff, roughness:.05, transmission:.6, transparent:true, opacity:.9});
+function setChill(pct){
+  while(drops.children.length) drops.remove(drops.children[0]);
+  const n = Math.round(pct/100*140);
+  for(let i=0;i<n;i++){
+    const m=new THREE.Mesh(dropGeo, dropMat);
+    const a=Math.random()*Math.PI*2, r=0.825;
+    m.position.set(Math.cos(a)*r, 0.25+Math.random()*0.95, Math.sin(a)*r);
+    m.scale.setScalar(0.6+Math.random()*1.1);
+    drops.add(m);
+  }
+  document.getElementById('chillVal').textContent = pct+'%';
+  const abv={lager:'5.0%',ipa:'6.2%',stout:'4.8%',pilsner:'4.9%'}[beerStyle];
+  document.getElementById('beerPill').textContent = `🍺 ${beerStyle.toUpperCase()} • ${abv} • ${pct>60?'❄️ frosty':pct>25?'🧊 chilled':'🌤️ dry'}`;
+}
+setChill(70);
+
+// foam particles
+const foamGeo = new THREE.SphereGeometry(0.03,8,8);
+const foamMat = new THREE.MeshStandardMaterial({color:0xfff8e9, roughness:.9});
+let foams=[];
+function cheers(){
+  for(let i=0;i<60;i++){
+    const m=new THREE.Mesh(foamGeo, foamMat);
+    m.position.set((Math.random()-.5)*.5, 1.9, (Math.random()-.5)*.5);
+    m.userData.v=new THREE.Vector3((Math.random()-.5)*1.6, 1.5+Math.random()*2, (Math.random()-.5)*1.6);
+    m.userData.life=1.2+Math.random();
+    scene.add(m); foams.push(m);
+  }
+}
+
+// UI wiring
+const nameInput=document.getElementById('nameInput'), namePreview=document.getElementById('namePreview');
+function applyName(){
+  const v=(nameInput.value||'MUSE SPARK').toUpperCase().slice(0,18);
+  namePreview.textContent=v||'MUSE SPARK';
+  holderMat.map=makeHolderTexture(v||'MUSE SPARK', holderColor); holderMat.needsUpdate=true;
+}
+nameInput.addEventListener('input', applyName);
+
+const colors=['#b5341f','#0f5f8c','#1d7a3a','#e9a500','#5b2d8e','#222222'];
+const swWrap=document.getElementById('swatches');
+colors.forEach((c,i)=>{
+  const d=document.createElement('div'); d.className='sw'+(i===0?' active':''); d.style.background=c;
+  d.title=c; d.onclick=()=>{ holderColor=c; document.querySelectorAll('.sw').forEach(x=>x.classList.remove('active')); d.classList.add('active');
+    holderMat.map=makeHolderTexture((nameInput.value||'MUSE SPARK').toUpperCase(), c); holderMat.needsUpdate=true;
+    handleMat.color.set(c).multiplyScalar(.9); bottom.material.color.set(c).multiplyScalar(.8); };
+  swWrap.appendChild(d);
+});
+document.getElementById('beerSelect').onchange=e=>{ beerStyle=e.target.value; canMat.map=makeCanTexture(beerStyle); canMat.needsUpdate=true; setChill(+document.getElementById('chill').value); };
+document.getElementById('sizeSelect').onchange=e=>{
+  const v=e.target.value; const h=v==='500'?1.28:v==='355'?1.12:1.10; const r=v==='500'?0.64:0.62;
+  canBody.scale.set(r/0.62,h/1.10,r/0.62); canBody.position.y=0.63+h/2;
+  canTop.position.y=0.63+h+0.05; lid.position.y=0.63+h+0.105; tabBase.position.y=tab.position.y=0.63+h+0.115;
+  document.getElementById('s1').textContent=v==='500'?'67 mm':'66 mm';
+  document.getElementById('s2').textContent=v==='500'?'168 mm':v==='355'?'122 mm':'115 mm';
+};
+document.getElementById('chill').oninput=e=>setChill(+e.target.value);
+let spinning=true; const spinBtn=document.getElementById('spinBtn');
+spinBtn.onclick=()=>{ spinning=!spinning; spinBtn.textContent=spinning?'⏸️ Pause spin':'▶️ Spin'; };
+let lifted=false; const liftBtn=document.getElementById('liftBtn');
+liftBtn.onclick=()=>{ lifted=!lifted; liftBtn.textContent=lifted?'⬇️ Drop it in':'⬆️ Lift the can'; };
+document.getElementById('cheersBtn').onclick=cheers;
+document.getElementById('shotBtn').onclick=()=>{
+  renderer.render(scene,camera);
+  const a=document.createElement('a'); a.download='muse-spark-mugg.png'; a.href=renderer.domElement.toDataURL('image/png'); a.click();
+};
+
+function resize(){
+  const w=canvas.clientWidth||canvas.parentElement.clientWidth, h=560;
+  renderer.setSize(w,h,false); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+const clock=new THREE.Clock();
+function tick(){
+  requestAnimationFrame(tick);
+  const t=clock.getElapsedTime(), dt=Math.min(clock.getDelta()+0.016,0.05);
+  if(spinning){ holder.rotation.y+=dt*0.5; canGroup.rotation.y+=dt*0.5; drops.rotation.y+=dt*0.5; }
+  const targetY=lifted?1.1:0;
+  canGroup.position.y+= (targetY-canGroup.position.y)*0.08;
+  canGroup.position.y+=Math.sin(t*2)*0.0008;
+  foams=foams.filter(m=>{ m.userData.life-=0.02; m.position.addScaledVector(m.userData.v,0.02); m.userData.v.y-=0.06; if(m.userData.life<=0||m.position.y<0){scene.remove(m);return false;} return true; });
+  controls.update(); renderer.render(scene,camera);
+}
+tick();
+applyName();
+</script>
+</body>
+</html>
