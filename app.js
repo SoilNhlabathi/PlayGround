@@ -4,7 +4,6 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { OBJExporter } from 'three/addons/exporters/OBJExporter.js';
@@ -1193,11 +1192,12 @@ async function loadFont() {
 /* ================= generate ================= */
 const $ = id => document.getElementById(id);
 let currentMeta = { prompt: '', seed: 7, tris: 0 };
-let aiMode = false;
 
 async function generate(prompt, seed, styleOpt, detail, showText) {
-  aiMode = false;
   prompt = (prompt || '').trim() || 'a dreamy abstract sculpture';
+  /* natural-language read: nouns → parts, adjectives → reshapes, layout → order */
+  const DS = parseDesign(prompt);
+  renderDesignSpec(prompt, DS);
   const rng = mulberry32(hashStr(prompt + '::' + seed));
   const fbm = makeNoise(hashStr(prompt + seed) % 1000);
   clearModel();
@@ -1209,20 +1209,43 @@ async function generate(prompt, seed, styleOpt, detail, showText) {
       : /low.?poly|voxel|game/.test(prompt.toLowerCase()) ? 'lowpoly' : 'clay')
     : styleOpt;
   const M = styleMats(style, pal.colors, rng, fbm);
+  applyNLMaterials(M, DS);
   const cw = colorWord(prompt);
   if (cw !== null && style !== 'crystal' && style !== 'neon') {
     M.primary.color.setHex(cw);
     if (pal.name === 'aurora') pal.name = 'custom';
   }
   const { primary, tags } = interpret(prompt);
+  const modIds = new Set(DS.modifiers.map(m => m.id));
+  if (modIds.has('ornate') && !DS.forms.length) DS.forms.push({ id: 'ribs', label: 'ribbed shell bands' }, { id: 'studs', label: 'relief studs' });
 
   const g = new THREE.Group();
   modelRoot.add(g);
-  g.add(buildPedestal(M));
 
+  /* ---- compile in picture order: backdrop → base → mass → language → foreground → inscription ---- */
   const hasIsland = /island|floating|avatar|dragon/.test(prompt.toLowerCase());
-  if (hasIsland) buildFloatingIsland(g, M, rng, detail, fbm);
+  const langName = DS.forms.length ? DS.forms.map(f => f.id).join(' + ') : 'native accents';
+  const stepLabels = [
+    'stage · disc + rim catcher',
+    hasIsland ? 'backdrop · floating island mass' : 'backdrop · clear void',
+    `mass · ${primary} in ${DS.materials[0]?.id || 'sculpted clay'}`,
+    `language · ${langName}${modIds.size ? ' · ' + [...modIds].join(', ') : ''}`,
+    'foreground · ground lock + contact shadow',
+    showText ? 'inscription · title text' : 'inscription · skipped',
+  ];
+  renderBuildOrder(stepLabels, -1);
+  const frame = () => new Promise(r => requestAnimationFrame(r));
+  const mark = async i => { renderBuildOrder(stepLabels, i); await frame(); };
 
+  /* 00 · stage */
+  g.add(buildPedestal(M));
+  await mark(0);
+
+  /* 01 · backdrop mass */
+  if (hasIsland) buildFloatingIsland(g, M, rng, detail, fbm);
+  await mark(1);
+
+  /* 02 · primary sculpted mass */
   const tmp = new THREE.Group();
   const B = (builder, ...args) => builder(tmp, M, rng, detail, fbm, ...args);
   switch (primary) {
@@ -1245,11 +1268,32 @@ async function generate(prompt, seed, styleOpt, detail, showText) {
     case 'crystals': B((gg, MM, rr2, dd, ff) => buildCrystals(gg, MM, rr2, dd, ff, 0, 0, true)); break;
     default: B((gg, MM, rr2, dd, ff) => buildSculpture(gg, MM, rr2, dd, ff, prompt));
   }
+  await mark(2);
+
+  /* 03 · midground: NL complex-shape forms + native accents, seated on the mass */
+  tmp.updateMatrixWorld(true);
+  {
+    const bb = new THREE.Box3().setFromObject(tmp);
+    const size = bb.getSize(new THREE.Vector3());
+    const c = bb.getCenter(new THREE.Vector3());
+    buildNLForms(tmp, M, rng, detail, fbm, DS, c.x, bb.max.y, Math.max(0.8, Math.max(size.x, size.z) / 2));
+  }
   if (/crystal|magic|glow|dragon/.test(prompt.toLowerCase()) && primary !== 'crystals')
     buildCrystals(tmp, M, rng, Math.min(detail, 1), fbm, rr(rng, -1.7, 1.7), rr(rng, -1.7, 1.7), false);
   if (/forest|garden|nature|tree/.test(prompt.toLowerCase()) && primary !== 'trees' && detail > 0)
     buildTree(tmp, M, rng, 0, fbm, rr(rng, -2, 2), rr(rng, -2, 2), 0.5);
-  // auto-ground: rest the lowest solid point exactly on the stage (no floating / sinking)
+  /* adjective reshapes: one local-frame transform over every mass layer,
+     applied before the ground-lock measures the result */
+  if (modIds.has('tall')) tmp.scale.y *= 1.3;
+  if (modIds.has('massive')) { tmp.scale.x *= 1.35; tmp.scale.z *= 1.35; tmp.scale.y *= 1.1; }
+  if (modIds.has('bulky')) { tmp.scale.x *= 1.18; tmp.scale.z *= 1.18; }
+  if (modIds.has('small')) tmp.scale.multiplyScalar(0.8);
+  if (modIds.has('sleek')) { tmp.scale.x *= 1.15; tmp.scale.y *= 0.92; tmp.scale.z *= 0.9; }
+  await mark(3);
+
+  /* 04 · foreground: finish tones, then ground-lock + contact shadow */
+  if (modIds.has('dark')) tmp.traverse(o => { if (o.isMesh && o.material?.color) o.material.color.multiplyScalar(0.72); });
+  if (modIds.has('aged')) tmp.traverse(o => { if (o.isMesh && o.material) { o.material.roughness = Math.min(1, (o.material.roughness ?? 0.6) + 0.25); } });
   tmp.position.y = 0;
   tmp.updateMatrixWorld(true);
   {
@@ -1261,14 +1305,17 @@ async function generate(prompt, seed, styleOpt, detail, showText) {
         if (!has) { gb.copy(b); has = true; } else gb.union(b);
       }
     });
-    const stageY = hasIsland ? 0.84 : 0.37;
+    const floatLift = modIds.has('float') ? 0.7 : 0;
+    const stageY = (hasIsland ? 0.84 : 0.37) + floatLift;
     tmp.position.y = has ? stageY - gb.min.y : (hasIsland ? 0.5 : 0.35);
     const size = has ? gb.getSize(new THREE.Vector3()) : new THREE.Vector3(2, 1, 2);
     const r = Math.min(2.7, Math.max(1.15, Math.max(size.x, size.z) * 0.58));
-    blobShadow(tmp, (has ? gb.min.y : 0) + 0.02, r, hasIsland ? 0.42 : 0.5);
+    blobShadow(tmp, (has ? gb.min.y : 0) + 0.02, r, modIds.has('float') ? 0.3 : hasIsland ? 0.42 : 0.5);
   }
   g.add(tmp);
+  await mark(4);
 
+  /* 05 · inscription */
   if (showText) {
     try {
       const font = await loadFont();
@@ -1283,6 +1330,23 @@ async function generate(prompt, seed, styleOpt, detail, showText) {
       g.add(tm);
     } catch { /* offline font: skip */ }
   }
+  await mark(5);
+
+  /* frame the picture: fit the compiled model in view (direction kept, distance fit) */
+  try {
+    const fb = new THREE.Box3().setFromObject(g);
+    const fs = fb.getSize(new THREE.Vector3());
+    const fc = fb.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(fs.x, fs.y, fs.z);
+    if (isFinite(maxDim) && maxDim > 0) {
+      controls.target.set(fc.x, fc.y, fc.z);
+      const dir = camera.position.clone().sub(controls.target);
+      const len = dir.length() || 1;
+      dir.multiplyScalar(1 / len);
+      const dist = Math.min(24, Math.max(6.5, maxDim * 2.1 + 2.5));
+      camera.position.copy(controls.target).addScaledVector(dir, dist);
+    }
+  } catch { /* keep previous framing */ }
 
   finishGenerate(g, prompt, seed, style, pal, primary, tags, 'procedural');
 }
@@ -1302,132 +1366,179 @@ function finishGenerate(g, prompt, seed, style, pal, primary, tags, source) {
     }
   });
   currentMeta = { prompt, seed, tris, style, palette: pal.name, kind: primary };
-  $('modelName').textContent = `${primary} · ${pal.name} · seed ${seed}${source === 'ai' ? ' · AI' : ''}`;
+  $('modelName').textContent = `${primary} · ${pal.name} · seed ${seed}`;
   $('modelStats').textContent = `${tris.toLocaleString()} tris`;
   const tagBox = $('tags'); tagBox.innerHTML = '';
-  [...tags, source === 'ai' ? 'AI cloud' : style, pal.name + ' palette'].forEach(t => {
+  [...tags, style, pal.name + ' palette'].forEach(t => {
     const s = document.createElement('span'); s.textContent = '✦ ' + t; tagBox.appendChild(s);
   });
   const iv = $('interpreted');
-  if (iv) iv.textContent = source === 'ai' ? '☁️ generated by Meshy AI cloud' : '✨ auto-detect: ' + (tags.join(' · ') || 'abstract sculpture');
+  if (iv) iv.textContent = '✨ auto-detect: ' + (tags.join(' · ') || 'abstract sculpture');
   pushHistory(prompt, seed);
 }
 
-/* ================= Meshy cloud AI ================= */
-const MESHY_BASE = 'https://api.meshy.ai/openapi/v2/text-to-3d';
-async function meshyCreatePreview(prompt, apiKey) {
-  const res = await fetch(MESHY_BASE, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'preview', prompt: prompt.slice(0, 600), target_formats: ['glb'] }),
+/* ================= natural-language design → complex shapes =================
+   Nouns pick parts, adjectives reshape them, layout words order them.
+   No cloud APIs: every token maps to a local complex-shape op
+   (lathe / extrude / tapered tube / displacement / boolean-feel trim). */
+const NL_MATERIALS = [
+  [/crystal|glass|glassy|ice|diamond|gem/, 'crystal', 'faceted transmissive crystal'],
+  [/wood|wooden|timber|oak|log/, 'wood', 'wood-grain timber'],
+  [/stone|marble|granite|rocky|brick/, 'stone', 'cut stone blocks'],
+  [/metal|steel|chrome|iron|titanium|bronze/, 'metal', 'brushed metal'],
+  [/gold|golden|brass|luxury/, 'gold', 'polished gold'],
+  [/neon|glow|glowing|bioluminescent|laser/, 'neon', 'emissive glow'],
+  [/moss|mossy|leafy|grassy|leaf/, 'moss', 'leafy moss'],
+  [/scale|scaly|scaled/, 'scales', 'overlapping scales'],
+  [/fur|furry|fluffy|feather/, 'fur', 'soft fur'],
+  [/rust|rusty|weathered|aged|ancient/, 'rust', 'weathered patina'],
+];
+const NL_FORMS = [
+  [/dome|domed|cupola/, 'dome', 'lathe-turned dome'],
+  [/arch|arched|arcade|gateway/, 'arch', 'extruded arch ring'],
+  [/spire|needle|obelisk|steeple|minaret/, 'spire', 'tapered spire'],
+  [/tower|turret|column|pillar|post/, 'tower', 'fluted column'],
+  [/ring|halo|orbit|hoop/, 'rings', 'orbit rings + satellites'],
+  [/wing|wings|feathered/, 'wings', 'veined wing membranes'],
+  [/fin|fins|spoiler|blade/, 'fins', 'swept fin blades'],
+  [/rib|ribbed|fluted|grooved|striped/, 'ribs', 'ribbed shell bands'],
+  [/twist|twisted|spiral|helix|coiled/, 'twist', 'helical twist'],
+  [/knob|knobs|stud|studs|bump/, 'studs', 'relief studs'],
+  [/horn|antler|crown/, 'horns', 'swept horn pair'],
+  [/tail|tailed/, 'tail', 'tapered tail curl'],
+  [/porch|veranda|balcony|deck/, 'porch', 'posted porch mass'],
+  [/chimney|smokestack/, 'chimney', 'capped chimney stack'],
+  [/wheel|wheels/, 'wheels', 'dished wheel set'],
+  [/window|windows/, 'windows', 'recessed lit windows'],
+];
+const NL_MODIFIERS = [
+  [/tower|tall|towering|lofty|skyscraping/, 'tall', 'stretched vertical (×1.35)'],
+  [/tiny|small|mini|compact|cute|little/, 'small', 'compact scale (×0.8)'],
+  [/massive|giant|huge|colossal|monumental|big/, 'massive', 'monumental mass (×1.4 girth)'],
+  [/sleek|slim|slender|streamlined|aerodynamic|fast/, 'sleek', 'sleek taper + low drag'],
+  [/bulky|rugged|stocky|muscular|armored|heavy/, 'bulky', 'bulked armor girth'],
+  [/curv|round|smooth|organic|plump|chubby/, 'round', 'softened roundness'],
+  [/ancient|old|ruined|cracked|weathered/, 'aged', 'aged surface relief'],
+  [/ornate|decorat|intricate|detailed|elegant|royal/, 'ornate', 'ornamental trim'],
+  [/float|hover|levitat|airy/, 'float', 'lifted hover pose'],
+  [/dark|shadow|midnight|gothic/, 'dark', 'darkened shading'],
+];
+const NL_LAYOUT = [
+  [/\bon top of\b|\batop\b|\bcrown|\brooftop\b/, 'top', 'compiled last (crown layer)'],
+  [/\bbeside\b|\bflank|\bwing\b|\bside\b/, 'side', 'compiled as side layer'],
+  [/\baround\b|\bsurround|\bring\b|\bencircl/, 'around', 'compiled as surround layer'],
+  [/\bbeneath\b|\bunder\b|\bbase\b|\bfoundation\b/, 'base', 'compiled first (base layer)'],
+  [/\bbehind\b|\bbackdrop\b/, 'back', 'compiled first (backdrop layer)'],
+  [/\bin front\b|\bforeground\b/, 'front', 'compiled last (foreground layer)'],
+];
+function parseDesign(prompt) {
+  const p = (prompt || '').toLowerCase();
+  const take = list => list.filter(([re]) => re.test(p)).map(([, id, label]) => ({ id, label }));
+  const materials = take(NL_MATERIALS);
+  const forms = take(NL_FORMS);
+  const modifiers = take(NL_MODIFIERS);
+  const layout = take(NL_LAYOUT);
+  const countWords = { pair: 2, two: 2, three: 3, four: 4, five: 5, row: 4, cluster: 5, forest: 5, fleet: 3 };
+  let count = 0;
+  for (const [w, n] of Object.entries(countWords)) if (p.includes(w)) count = Math.max(count, n);
+  return { materials, forms, modifiers, layout, count };
+}
+function designSummary(DS) {
+  const parts = [];
+  if (DS.materials.length) parts.push('material: ' + DS.materials.map(m => m.label).join(', '));
+  if (DS.forms.length) parts.push('form: ' + DS.forms.map(m => m.label).join(', '));
+  if (DS.modifiers.length) parts.push('reshape: ' + DS.modifiers.map(m => m.label).join(', '));
+  if (DS.layout.length) parts.push('order: ' + DS.layout.map(m => m.label).join(', '));
+  if (DS.count) parts.push('count ×' + DS.count);
+  return parts.length ? parts : ['plain reading — default sculpted massing'];
+}
+function renderDesignSpec(prompt, DS) {
+  const box = $('designSpec');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const line of designSummary(DS)) {
+    const li = document.createElement('li');
+    const [k, ...rest] = line.split(':');
+    li.innerHTML = `<b>${k}</b>${rest.length ? ':' + rest.join(':') : ''}`;
+    box.appendChild(li);
+  }
+}
+/* picture-order compile log: step names appear in the order paint hits canvas */
+function renderBuildOrder(steps, doneUpTo = -1) {
+  const box = $('buildOrder');
+  if (!box) return;
+  box.innerHTML = '';
+  steps.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.textContent = `${String(i + 1).padStart(2, '0')} · ${s}`;
+    if (i <= doneUpTo) li.classList.add('done');
+    box.appendChild(li);
   });
-  if (!res.ok) throw new Error(`Meshy preview request failed (HTTP ${res.status})`);
-  const data = await res.json();
-  if (!data.result) throw new Error('Meshy returned no task id');
-  return data.result;
 }
-async function meshyCreateRefine(previewId, prompt, apiKey) {
-  const res = await fetch(MESHY_BASE, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mode: 'refine', preview_task_id: previewId, texture_prompt: prompt.slice(0, 600), enable_pbr: true, target_formats: ['glb'] }),
-  });
-  if (!res.ok) throw new Error(`Meshy refine request failed (HTTP ${res.status})`);
-  const data = await res.json();
-  if (!data.result) throw new Error('Meshy returned no refine task id');
-  return data.result;
-}
-async function meshyPoll(taskId, apiKey, onTick) {
-  for (let i = 0; i < 100; i++) {
-    const res = await fetch(`${MESHY_BASE}/${taskId}`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-    if (!res.ok) throw new Error(`Meshy status check failed (HTTP ${res.status})`);
-    const task = await res.json();
-    onTick?.(task);
-    if (task.status === 'SUCCEEDED') return task;
-    if (task.status === 'FAILED' || task.status === 'CANCELED') throw new Error(task.task_error?.message || `Meshy task ${task.status}`);
-    await new Promise(r => setTimeout(r, 5000));
+/* extra complex-shape attachments driven purely by NL form tokens */
+function buildNLForms(g, M, rng, detail, fbm, DS, cx = 0, baseY = 3.4, R = 1.6) {
+  const ids = new Set(DS.forms.map(f => f.id));
+  if (!ids.size) return;
+  const n = DS.count || 0;
+  if (ids.has('dome')) {
+    const Rd = R * 0.55; // cupola scale: crowns the mass instead of swallowing it
+    const dome = mesh(lathe([[0.001, 0], [Rd * 0.7, 0.02], [Rd * 0.95, Rd * 0.35], [Rd * 0.55, Rd * 0.72], [0.001, Rd * 0.85]], 36),
+      PBR(M.accent.color, { metalness: 0.4, roughness: 0.3, clearcoat: 0.8 }), cx, baseY, 0, g);
+    void dome;
+    mesh(new THREE.SphereGeometry(0.09, 10, 8), M.accent, cx, baseY + Rd * 0.9, 0, g);
   }
-  throw new Error('Meshy task timed out');
-}
-async function loadAIUrl(glbUrl) {
-  const res = await fetch(glbUrl);
-  if (!res.ok) throw new Error(`Model download failed (HTTP ${res.status})`);
-  const blob = await res.blob();
-  const loader = new GLTFLoader();
-  const objUrl = URL.createObjectURL(blob);
-  try {
-    const gltf = await loader.loadAsync(objUrl);
-    return gltf.scene;
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(objUrl), 8000);
+  if (ids.has('spire')) {
+    const h = (n >= 3 ? 1.8 : 1.3) * R * 0.8;
+    mesh(taperedTube([[cx, baseY, 0], [cx, baseY + h * 0.6, 0], [cx, baseY + h, 0]], t => 0.16 * (1 - t * 0.9) + 0.01, 14, 10), M.dark, 0, 0, 0, g);
   }
-}
-function normalizeAIScene(obj) {
-  const box = new THREE.Box3().setFromObject(obj);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const s = 3.4 / maxDim;
-  obj.scale.setScalar(s);
-  obj.position.sub(center.clone().multiplyScalar(s));
-  const g = new THREE.Group();
-  obj.position.y -= box.min.y * s - 0.4;
-  obj.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  g.add(obj);
-  return g;
-}
-let aiRunning = false;
-async function runAIGenerate() {
-  if (aiRunning) return;
-  const apiKey = ($('aiKey').value || '').trim();
-  const prompt = ($('prompt').value || '').trim();
-  const status = $('aiStatus');
-  if (!apiKey) { status.textContent = 'Paste your Meshy API key first (free at meshy.ai).'; return; }
-  if (!prompt) { status.textContent = 'Type a prompt first.'; return; }
-  aiRunning = true;
-  $('aiGenerateBtn').disabled = true;
-  $('loading').classList.remove('hidden');
-  try {
-    localStorage.setItem('pf3d-meshy-key', apiKey);
-    status.textContent = 'Sending prompt to Meshy AI…';
-    $('loadingText').textContent = 'AI: creating preview mesh…';
-    const previewId = await meshyCreatePreview(prompt, apiKey);
-    status.textContent = `Preview task ${previewId.slice(0, 8)}… generating mesh (~1–3 min)…`;
-    const preview = await meshyPoll(previewId, apiKey, t => {
-      $('loadingText').textContent = `AI preview ${t.progress ?? 0}%…`;
-      status.textContent = `Preview mesh generating… ${t.progress ?? 0}%`;
-    });
-    void preview;
-    status.textContent = 'Mesh ready — texturing (refine)…';
-    $('loadingText').textContent = 'AI: texturing model…';
-    const refineId = await meshyCreateRefine(previewId, prompt, apiKey);
-    const refined = await meshyPoll(refineId, apiKey, t => {
-      $('loadingText').textContent = `AI texturing ${t.progress ?? 0}%…`;
-      status.textContent = `Texturing… ${t.progress ?? 0}%`;
-    });
-    const glbUrl = refined.model_urls?.glb;
-    if (!glbUrl) throw new Error('Meshy returned no GLB url');
-    status.textContent = 'Downloading AI model…';
-    const aiScene = await loadAIUrl(glbUrl);
-    clearModel();
-    const g = new THREE.Group();
-    modelRoot.add(g);
-    const pal = paletteFor(prompt);
-    const M = styleMats('clay', pal.colors, Math.random, makeNoise(1));
-    g.add(buildPedestal(M));
-    const norm = normalizeAIScene(aiScene);
-    norm.position.y += 0.35;
-    g.add(norm);
-    aiMode = true;
-    finishGenerate(g, prompt, Number($('seed').value || 0), 'ai-textured', pal, 'ai model', [prompt.split(/\s+/).slice(0, 3).join(' ')], 'ai');
-    status.textContent = 'Done — AI model loaded. Export buttons work on it too.';
-  } catch (e) {
-    console.error(e);
-    status.textContent = 'AI failed: ' + (e.message || e);
+  if (ids.has('arch')) {
+    const arch = mesh(new THREE.TorusGeometry(R * 0.55, 0.1, 10, 28, Math.PI), M.dark, cx, baseY - R * 0.4, R * 0.4, g);
+    void arch;
   }
-  $('loading').classList.add('hidden');
-  $('aiGenerateBtn').disabled = false;
-  aiRunning = false;
+  if (ids.has('rings')) {
+    const ring = mesh(new THREE.TorusGeometry(R * 1.15, 0.05, 10, 72), M.accent, cx, baseY - R * 0.2, 0, g);
+    ring.rotation.x = Math.PI / 2 + 0.35;
+    ring.userData.orbit = 0.2;
+    const k = Math.min(4, Math.max(2, n || 3));
+    for (let i = 0; i < k; i++) {
+      const a = (i / k) * Math.PI * 2;
+      const orb = mesh(smoothGeo(new THREE.SphereGeometry(0.09, 12, 10)), M.accent, cx + Math.cos(a) * R * 1.15, baseY - R * 0.2, Math.sin(a) * R * 1.15, g);
+      orb.userData.orbit = 0.2; orb.userData.orbitR = R * 1.15; orb.userData.orbitA = a; orb.userData.orbitY = orb.position.y;
+    }
+  }
+  if (ids.has('ribs')) {
+    for (let i = 0; i < 4; i++)
+      mesh(new THREE.TorusGeometry(R * (0.9 - i * 0.12), 0.035, 8, 48), M.secondary, cx, baseY - R * 0.5 + i * 0.28, 0, g).rotation.x = Math.PI / 2;
+  }
+  if (ids.has('studs')) {
+    for (let i = 0; i < 8; i++) {
+      const a = rng() * Math.PI * 2;
+      mesh(new THREE.SphereGeometry(0.07, 10, 8), M.accent, cx + Math.cos(a) * R * 0.8, baseY + rr(rng, -0.4, 0.6), Math.sin(a) * R * 0.8, g);
+    }
+  }
+  if (ids.has('twist')) {
+    for (let i = 0; i < 3; i++) {
+      const t = mesh(new THREE.TorusGeometry(R * (0.75 - i * 0.14), 0.045, 8, 48), M.secondary, cx, baseY - R * 0.35 + i * 0.3, 0, g);
+      t.rotation.x = Math.PI / 2 + (i * 0.5);
+      t.rotation.y = i * 0.6;
+    }
+  }
+  if (ids.has('fins') && detail > 0) {
+    for (const s of [-1, 1])
+      mesh(rbox(0.5, 0.28, 0.06, 0.02), M.secondary, cx - R * 0.5, baseY - R * 0.3, s * (R * 0.55), g).rotation.y = s * 0.3;
+  }
+  void fbm;
+}
+/* NL material override: words like wooden / stone / metal reshape the finish */
+function applyNLMaterials(M, DS) {
+  const ids = new Set(DS.materials.map(m => m.id));
+  if (ids.has('wood')) { M.primary.map = woodTexture(); M.primary.color.setHex(0x8b5a2b); M.primary.roughness = 0.7; M.primary.metalness = 0.02; }
+  if (ids.has('stone')) { const t = stoneTexture(); M.primary.map = t; M.primary.bumpMap = t; M.primary.bumpScale = 0.4; M.primary.roughness = 0.9; }
+  if (ids.has('metal')) { M.primary.metalness = 0.9; M.primary.roughness = 0.32; M.primary.bumpMap = brushedTexture(); M.primary.bumpScale = 0.08; }
+  if (ids.has('gold')) { M.primary.color.setHex(0xd4af37); M.primary.metalness = 0.95; M.primary.roughness = 0.28; }
+  if (ids.has('neon')) { M.primary.emissive = new THREE.Color(M.primary.color); M.primary.emissiveIntensity = 0.45; }
+  if (ids.has('moss')) { M.primary.map = foliageTexture(); M.primary.roughness = 0.95; }
+  if (ids.has('rust')) { M.primary.roughness = 0.85; M.primary.metalness = 0.35; }
 }
 
 /* ================= UI ================= */
@@ -1439,7 +1550,7 @@ function resize() {
 }
 addEventListener('resize', resize);
 
-const STAGES = ['Analyzing prompt…', 'Mixing PBR palette…', 'Sculpting geometry…', 'Painting textures…', 'Polishing & lighting…'];
+const STAGES = ['Reading nouns → parts…', 'Adjectives → reshapes…', 'Compiling picture order…', 'Carving complex shapes…', 'Grounding + lighting…'];
 let generating = false;
 async function runGenerate() {
   if (generating) return;
@@ -1545,8 +1656,6 @@ $('viewFront').onclick = () => { camera.position.set(0, 2.6, 11); controls.targe
 $('viewTop').onclick = () => { camera.position.set(0, 13, 0.5); controls.target.set(0, 1, 0); };
 $('viewIso').onclick = () => { camera.position.set(7.2, 4.4, 9.2); controls.target.set(0, 1.8, 0); };
 $('detail').oninput = e => $('detailVal').textContent = ['light', 'medium', 'ultra'][Number(e.target.value)];
-$('aiGenerateBtn').onclick = runAIGenerate;
-try { $('aiKey').value = localStorage.getItem('pf3d-meshy-key') || ''; } catch { /* private mode */ }
 
 /* ================= loop ================= */
 const clock = new THREE.Clock();

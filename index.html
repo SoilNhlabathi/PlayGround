@@ -97,11 +97,12 @@
       <p class="hint">GLB for Blender / Unity / web · STL for 3D printing · OBJ for universal import.</p>
     </div>
 
-    <div class="export-box ai-box">
-      <span class="field-label">☁️ AI Cloud <em>photoreal · via Meshy</em></span>
-      <input id="aiKey" type="password" placeholder="Meshy API key (free at meshy.ai)" autocomplete="off" />
-      <button id="aiGenerateBtn" class="ai-btn" type="button">☁️ Generate with AI</button>
-      <p class="hint" id="aiStatus">Optional: paste a free Meshy key for true AI-generated meshes. Instant sculpted mode above needs no key.</p>
+    <div class="export-box design-box">
+      <span class="field-label">◈ Natural-language design <em>complex shapes · no cloud</em></span>
+      <ul id="designSpec" class="design-spec"><li>Type a prompt — nouns pick parts, adjectives reshape them.</li></ul>
+      <span class="field-label">▤ Picture compile order</span>
+      <ol id="buildOrder" class="build-order"><li>Nothing compiled yet.</li></ol>
+      <p class="hint">Pure procedural build: back → front, base → crown, mass → detail. Words like “towering”, “sleek”, “ribbed”, “with dome / arch / spire / rings” directly reshape the mesh.</p>
     </div>
   </aside>
 
@@ -132,7 +133,7 @@
 
 <footer class="foot">
   <span>Drag to orbit · scroll to zoom · right-drag to pan</span>
-  <span>Sculpted realism engine — instant, no keys. Optional Meshy AI cloud for photoreal meshes.</span>
+  <span>Sculpted realism engine — instant, no keys, no cloud. NL-driven complex shapes, compiled in picture order.</span>
 </footer>
 
 <script type="module" src="app.js"></script>
